@@ -3,8 +3,8 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Game Pac-Man Kustom Full Layar</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Game Pac-Man</title>
     <style>
         /* Reset margin & hilangkan scrollbar */
         body,
@@ -17,6 +17,8 @@
             background-color: #000000;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             color: #ffffff;
+            touch-action: none;
+            /* Mencegah layar ter-scroll saat digeser */
         }
 
         /* Canvas dibuat memenuhi seluruh layar */
@@ -51,10 +53,13 @@
             justify-content: center;
             align-items: center;
             z-index: 20;
+            text-align: center;
+            padding: 20px;
+            box-sizing: border-box;
         }
 
         .overlay h1 {
-            font-size: 48px;
+            font-size: 42px;
             margin-bottom: 10px;
             color: #ffd700;
             text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
@@ -67,14 +72,14 @@
 
         .overlay p {
             color: #aaaaaa;
-            font-size: 18px;
+            font-size: 16px;
             margin-bottom: 30px;
         }
 
         /* Tombol */
         button {
             padding: 15px 40px;
-            font-size: 24px;
+            font-size: 20px;
             font-weight: bold;
             color: #ffffff;
             background-color: #1a237e;
@@ -93,7 +98,62 @@
 
         #gameOverScreen {
             display: none;
-            /* Disembunyikan saat awal */
+        }
+
+        /* VIRTUAL D-PAD UNTUK MOBILE */
+        .dpad-container {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+            z-index: 15;
+            /* Jangan tampilkan di awal, biarkan JS atau Media Query yang atur */
+        }
+
+        .dpad-row {
+            display: flex;
+            gap: 40px;
+        }
+
+        .d-btn {
+            width: 60px;
+            height: 60px;
+            background-color: rgba(255, 255, 255, 0.15);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 24px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            user-select: none;
+            /* Mencegah teks ter-highlight */
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+
+        .d-btn:active,
+        .d-btn.active {
+            background-color: rgba(255, 255, 255, 0.4);
+        }
+
+        /* Sembunyikan D-Pad jika layarnya lebar (Desktop/Laptop) */
+        @media (min-width: 768px) {
+            .dpad-container {
+                display: none;
+            }
+
+            .overlay h1 {
+                font-size: 48px;
+            }
+
+            .overlay p {
+                font-size: 18px;
+            }
         }
     </style>
 </head>
@@ -102,7 +162,7 @@
 
     <div id="startScreen" class="overlay">
         <h1>Bahlil-Man Arena</h1>
-        <p>Kumpulkan koin emas dan hindari Monster Merah!</p>
+        <p>Kumpulkan koin emas dan hindari Monster Merah!<br>(Bisa dimainkan di HP dan PC)</p>
         <button id="startBtn">START GAME</button>
     </div>
 
@@ -113,6 +173,15 @@
     </div>
 
     <div id="scoreBoard">Skor: <span id="score">0</span></div>
+
+    <div class="dpad-container" id="dpadControl">
+        <div class="d-btn" id="btnUp">▲</div>
+        <div class="dpad-row">
+            <div class="d-btn" id="btnLeft">◄</div>
+            <div class="d-btn" id="btnRight">►</div>
+        </div>
+        <div class="d-btn" id="btnDown">▼</div>
+    </div>
 
     <canvas id="gameCanvas"></canvas>
 
@@ -135,15 +204,18 @@
         const restartBtn = document.getElementById('restartBtn');
 
         const bgMusic = document.getElementById('bgMusic');
-        const gameOverSound = document.getElementById('gameOverSound'); // Panggil elemen audio baru
+        const gameOverSound = document.getElementById('gameOverSound');
 
         let score = 0;
         let isGameRunning = false;
         let animationId;
 
+        // Setup Canvas Full Layar
         function resizeCanvas() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
+            // Sesuaikan jumlah makanan berdasarkan besar layar
+            if (isGameRunning && dots.length === 0) initDots();
         }
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
@@ -152,8 +224,8 @@
         const player = {
             x: canvas.width / 2,
             y: canvas.height / 2,
-            size: 50,
-            speed: 5,
+            size: window.innerWidth < 768 ? 40 : 50, // Ukuran karakter sedikit lebih kecil di HP
+            speed: window.innerWidth < 768 ? 4 : 5,  // Kecepatan disesuaikan untuk HP
             dx: 0,
             dy: 0
         };
@@ -163,16 +235,21 @@
 
         // 2. Setup Monster
         const monsters = [];
-
         function initMonsters() {
             monsters.length = 0;
-            monsters.push({ x: 50, y: 50, size: 40, speed: 2.5 });
-            monsters.push({ x: canvas.width - 50, y: canvas.height - 50, size: 40, speed: 3.0 });
+            // Kecepatan monster sedikit lebih lambat di HP agar adil
+            let mSpeed1 = window.innerWidth < 768 ? 2.0 : 2.5;
+            let mSpeed2 = window.innerWidth < 768 ? 2.5 : 3.0;
+            let mSize = window.innerWidth < 768 ? 35 : 40;
+
+            monsters.push({ x: 50, y: 50, size: mSize, speed: mSpeed1 });
+            monsters.push({ x: canvas.width - 50, y: canvas.height - 50, size: mSize, speed: mSpeed2 });
         }
 
         // 3. Setup Makanan (Dots)
         const dots = [];
-        const numDots = 80;
+        // Kurangi jumlah makanan di HP karena layar lebih kecil
+        const numDots = window.innerWidth < 768 ? 40 : 80;
 
         function initDots() {
             dots.length = 0;
@@ -180,18 +257,19 @@
                 dots.push({
                     x: Math.random() * (canvas.width - 40) + 20,
                     y: Math.random() * (canvas.height - 40) + 20,
-                    radius: 6,
+                    radius: 5,
                     collected: false
                 });
             }
         }
 
-        // 4. Kontrol Keyboard
+        // 4. Kontrol (Keyboard + Touch)
         const keys = {
             ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false,
             w: false, a: false, s: false, d: false
         };
 
+        // KONTROL KEYBOARD (PC)
         window.addEventListener('keydown', (e) => {
             if (keys.hasOwnProperty(e.key) || keys.hasOwnProperty(e.key.toLowerCase())) {
                 keys[e.key.toLowerCase() === e.key ? e.key : e.key.toLowerCase()] = true;
@@ -207,30 +285,55 @@
             }
         });
 
-        // ------------------------------------
+        // KONTROL SENTUH (VIRTUAL D-PAD HP)
+        function bindTouchBtn(btnId, keyName) {
+            const btn = document.getElementById(btnId);
+
+            // Event saat tombol disentuh
+            btn.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                keys[keyName] = true;
+                btn.classList.add('active');
+            }, { passive: false });
+
+            // Event saat sentuhan dilepas
+            btn.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                keys[keyName] = false;
+                btn.classList.remove('active');
+            });
+
+            // Event jika jari keluar dari area tombol
+            btn.addEventListener('touchcancel', (e) => {
+                keys[keyName] = false;
+                btn.classList.remove('active');
+            });
+        }
+
+        bindTouchBtn('btnUp', 'ArrowUp');
+        bindTouchBtn('btnDown', 'ArrowDown');
+        bindTouchBtn('btnLeft', 'ArrowLeft');
+        bindTouchBtn('btnRight', 'ArrowRight');
+
         // Logika saat Game Over
-        // ------------------------------------
         function gameOver() {
             isGameRunning = false;
-            cancelAnimationFrame(animationId); // Hentikan loop game
+            cancelAnimationFrame(animationId);
 
-            // Matikan musik latar
             bgMusic.pause();
             bgMusic.currentTime = 0;
 
-            // Putar efek suara mati/tertangkap
-            gameOverSound.currentTime = 0; // Reset dari awal
-            gameOverSound.play().catch(e => console.log("Gagal memutar efek suara:", e));
+            gameOverSound.currentTime = 0;
+            gameOverSound.play().catch(e => console.log(e));
 
             finalScoreElement.innerText = score;
-            gameOverScreen.style.display = 'flex'; // Munculkan layar Game Over
+            gameOverScreen.style.display = 'flex';
         }
 
         // 5. Update Logika Game
         function update() {
             if (!isGameRunning) return;
 
-            // Pergerakan Pemain
             player.dx = 0;
             player.dy = 0;
 
@@ -247,7 +350,6 @@
             player.x += player.dx;
             player.y += player.dy;
 
-            // Batas layar pemain
             if (player.x < 0) player.x = 0;
             if (player.y < 0) player.y = 0;
             if (player.x + player.size > canvas.width) player.x = canvas.width - player.size;
@@ -256,7 +358,6 @@
             const playerCenterX = player.x + player.size / 2;
             const playerCenterY = player.y + player.size / 2;
 
-            // Logika Monster Mengejar Pemain
             monsters.forEach(monster => {
                 const monsterCenterX = monster.x + monster.size / 2;
                 const monsterCenterY = monster.y + monster.size / 2;
@@ -270,13 +371,11 @@
                     monster.y += (dy / distance) * monster.speed;
                 }
 
-                // Cek tabrakan (Game Over)
-                if (distance < (player.size / 2) + (monster.size / 2) - 10) {
+                if (distance < (player.size / 2) + (monster.size / 2) - 8) {
                     gameOver();
                 }
             });
 
-            // Logika Ambil Makanan
             let allCollected = true;
             dots.forEach(dot => {
                 if (!dot.collected) {
@@ -300,7 +399,7 @@
             if (!isGameRunning) return;
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Gambar makanan
+            // Makanan
             ctx.fillStyle = '#FFD700';
             dots.forEach(dot => {
                 if (!dot.collected) {
@@ -311,7 +410,7 @@
                 }
             });
 
-            // Gambar Monster
+            // Monster
             monsters.forEach(monster => {
                 const mx = monster.x + monster.size / 2;
                 const my = monster.y + monster.size / 2;
@@ -334,7 +433,7 @@
                 ctx.fill();
             });
 
-            // Gambar Karakter Pemain
+            // Pemain
             if (playerImage.complete && playerImage.naturalWidth !== 0) {
                 ctx.drawImage(playerImage, player.x, player.y, player.size, player.size);
             } else {
@@ -343,7 +442,6 @@
             }
         }
 
-        // 7. Game Loop
         function gameLoop() {
             update();
             draw();
@@ -352,7 +450,6 @@
             }
         }
 
-        // Fungsi Memulai Permainan
         function startGame() {
             startScreen.style.display = 'none';
             gameOverScreen.style.display = 'none';
@@ -360,17 +457,20 @@
             score = 0;
             scoreElement.innerText = score;
 
+            // Reset posisi di tengah
             player.x = canvas.width / 2;
             player.y = canvas.height / 2;
+
+            // Perbarui ukuran jika user resize layar sebelum klik mulai
+            player.size = window.innerWidth < 768 ? 40 : 50;
+            player.speed = window.innerWidth < 768 ? 4 : 5;
 
             initDots();
             initMonsters();
 
-            // Stop suara tertangkap (jika user klik "Main Lagi" dengan cepat)
             gameOverSound.pause();
             gameOverSound.currentTime = 0;
 
-            // Play background music
             bgMusic.volume = 0.5;
             bgMusic.play().catch(e => console.log(e));
 
@@ -378,7 +478,6 @@
             gameLoop();
         }
 
-        // Event Listeners
         startBtn.addEventListener('click', startGame);
         restartBtn.addEventListener('click', startGame);
 
